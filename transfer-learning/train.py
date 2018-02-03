@@ -67,7 +67,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
         print('-' * 10)
 
         # Each epoch has a training and validation phase
-        for phase in ['train', 'va']:
+        for phase in ['train', 'val']:
             if phase == 'train':
                 scheduler.step()
                 model.train(True)
@@ -128,7 +128,7 @@ def visualize_model(model, num_images=6):
     images_so_far = 0
     fig = plt.figure()
 
-    for i, data in enumerate(dataloaders['va']):
+    for i, data in enumerate(dataloaders['val']):
         inputs, labels = data
         if use_gpu:
             inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
