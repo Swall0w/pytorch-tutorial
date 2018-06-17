@@ -34,4 +34,83 @@ class Lang(object):
             self.index2word[self.n_words] = word
             self.n_words += 1
         else:
-            self.word2count += 1
+            self.word2count[word] += 1
+
+
+def unicodeToAscii(s):
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', s)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+
+def normalizeString(s):
+    s = unicodeToAscii(s.lower().strip())
+    s = re.sub(r"([.!?])", r" \1", s)
+    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    return s
+
+
+def readLangs(lang1, lang2, reverse=False):
+    print('Reading lines...')
+
+    # Read the file and split into lines
+    lines = open('data/{}-{}.txt'.format(lang1, lang2), encoding='utf-8').\
+        read().strip().split('\n')
+
+    # Split every line into pairs and normalize
+    pairs = [[normalizeString(s) for s in l.split('\t')] for l in lines]
+
+    if reverse:
+        pairs = [list(reversed(p)) for p in pairs]
+        input_lang = Lang(lang2)
+        ouput_lang = Lang(lang1)
+    else:
+        input_lang = Lang(lang1)
+        ouput_lang = Lang(lang2)
+
+    return input_lang, ouput_lang, pairs
+
+
+MAX_LENGTH = 10
+eng_prefixes = (
+    'i am ', 'i m ',
+    'he is ', 'he s',
+    'she is ', 'she s ',
+    'you are ', 'you re ',
+    'we are ', 'we re ',
+    'they are ', 'they re '
+    )
+
+
+def filterPair(p):
+    return len(p[0].split(' ')) < MAX_LENGTH and \
+        len(p[1].split(' ')) < MAX_LENGTH and \
+        p[1].startswith(eng_prefixes)
+
+def filterPairs(pairs):
+    return [pair for pair in pairs if filterPair(pair)]
+
+
+def prepareData(lang1, lang2, reverse=False):
+    input_lang, ouput_lang, pairs = readLangs(lang1, lang2, reverse)
+    print('Read {} sentence pairs'.format(len(pairs)))
+    pairs = filterPairs(pairs)
+    print('Trimmed to {} sentence pairs'.format(len(pairs)))
+    print('Counting words...')
+    for pair in pairs:
+        input_lang.addSentence(pair[0])
+        ouput_lang.addSentence(pair[1])
+    print('Counted words:')
+    print(input_lang.name, input_lang.n_words)
+    print(ouput_lang.name, ouput_lang.n_words)
+    return input_lang, ouput_lang, pairs
+
+
+def main():
+    input_lang, ouput_lang, pairs = prepareData('eng', 'fra', True)
+    print(random.choice(pairs))
+
+
+if __name__ == '__main__':
+    main()
