@@ -24,8 +24,12 @@ def log_sum_exp(vec):
     return max_score + \
         torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
 
+#####################################################################
+# Create model
+
 
 class BiLSTM_CRF(nn.Module):
+
     def __init__(self, vocab_size, tag_to_ix, embedding_dim, hidden_dim):
         super(BiLSTM_CRF, self).__init__()
         self.embedding_dim = embedding_dim
@@ -41,13 +45,13 @@ class BiLSTM_CRF(nn.Module):
         # Maps the output of the LSTM into tag space.
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
 
-        # Matrix of transition parameters. Entry i, j is the score of
+        # Matrix of transition parameters.  Entry i,j is the score of
         # transitioning *to* i *from* j.
         self.transitions = nn.Parameter(
             torch.randn(self.tagset_size, self.tagset_size))
 
-        # These two statements enforce the constraint that we newver transfer
-        # to the start tag and we never transfer from the stop tag.
+        # These two statements enforce the constraint that we never transfer
+        # to the start tag and we never transfer from the stop tag
         self.transitions.data[tag_to_ix[START_TAG], :] = -10000
         self.transitions.data[:, tag_to_ix[STOP_TAG]] = -10000
 
@@ -68,27 +72,27 @@ class BiLSTM_CRF(nn.Module):
 
         # Iterate through the sentence
         for feat in feats:
-            alphas_t = [] # The forward tensors at this timestep
+            alphas_t = []  # The forward tensors at this timestep
             for next_tag in range(self.tagset_size):
-                # broadcast the emission score: it is the same regardless
-                # of the previous tag
+                # broadcast the emission score: it is the same regardless of
+                # the previous tag
                 emit_score = feat[next_tag].view(
-                    1, -1,).expand(1, self.tagset_size)
-
+                    1, -1).expand(1, self.tagset_size)
                 # the ith entry of trans_score is the score of transitioning to
-                # to next_tag from i
+                # next_tag from i
                 trans_score = self.transitions[next_tag].view(1, -1)
-                # The ith entry of next_tag is the value for the
-                # edge (i -> next_tag) before we do log-sum-exp of all
-                # the scores.
+                # The ith entry of next_tag_var is the value for the
+                # edge (i -> next_tag) before we do log-sum-exp
                 next_tag_var = forward_var + trans_score + emit_score
+                # The forward variable for this tag is log-sum-exp of all the
+                # scores.
                 alphas_t.append(log_sum_exp(next_tag_var).view(1))
             forward_var = torch.cat(alphas_t).view(1, -1)
         terminal_var = forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]
-        alphas = log_sum_exp(terminal_var)
+        alpha = log_sum_exp(terminal_var)
         return alpha
 
-    def  _get_lstm_features(self, sentence):
+    def _get_lstm_features(self, sentence):
         self.hidden = self.init_hidden()
         embeds = self.word_embeds(sentence).view(len(sentence), 1, -1)
         lstm_out, self.hidden = self.lstm(embeds, self.hidden)
@@ -99,11 +103,10 @@ class BiLSTM_CRF(nn.Module):
     def _score_sentence(self, feats, tags):
         # Gives the score of a provided tag sequence
         score = torch.zeros(1)
-        tags = torch.cat([torch.tensor(
-            [self.tag_to_ix[START_TAG]], dtype=torch.long), tags])
+        tags = torch.cat([torch.tensor([self.tag_to_ix[START_TAG]], dtype=torch.long), tags])
         for i, feat in enumerate(feats):
             score = score + \
-                self.transitions[tags[i + 1], tags[i] + feat[tags[i + 1]]]
+                self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
         score = score + self.transitions[self.tag_to_ix[STOP_TAG], tags[-1]]
         return score
 
@@ -117,20 +120,19 @@ class BiLSTM_CRF(nn.Module):
         # forward_var at step i holds the viterbi variables for step i-1
         forward_var = init_vvars
         for feat in feats:
-            bptrs_t = [] # holds the backpointers for this step
-            viterbivars_t = [] # holds the viterbi variables for this step
+            bptrs_t = []  # holds the backpointers for this step
+            viterbivars_t = []  # holds the viterbi variables for this step
 
             for next_tag in range(self.tagset_size):
                 # next_tag_var[i] holds the viterbi variable for tag i at the
                 # previous step, plus the score of transitioning
                 # from tag i to next_tag.
-                # We don't include the emmision scores here because the max
-                # does not depend on them (we dadd them in below)
+                # We don't include the emission scores here because the max
+                # does not depend on them (we add them in below)
                 next_tag_var = forward_var + self.transitions[next_tag]
                 best_tag_id = argmax(next_tag_var)
                 bptrs_t.append(best_tag_id)
                 viterbivars_t.append(next_tag_var[0][best_tag_id].view(1))
-
             # Now add in the emission scores, and assign forward_var to the set
             # of viterbi variables we just computed
             forward_var = (torch.cat(viterbivars_t) + feat).view(1, -1)
@@ -146,10 +148,9 @@ class BiLSTM_CRF(nn.Module):
         for bptrs_t in reversed(backpointers):
             best_tag_id = bptrs_t[best_tag_id]
             best_path.append(best_tag_id)
-
         # Pop off the start tag (we dont want to return that to the caller)
         start = best_path.pop()
-        assert start == self.tag_to_ix[START_TAG] # Sanity check
+        assert start == self.tag_to_ix[START_TAG]  # Sanity check
         best_path.reverse()
         return path_score, best_path
 
@@ -159,7 +160,7 @@ class BiLSTM_CRF(nn.Module):
         gold_score = self._score_sentence(feats, tags)
         return forward_score - gold_score
 
-    def forward(self, sentence): # dont confuse this with _forward_alg above.
+    def forward(self, sentence):  # dont confuse this with _forward_alg above.
         # Get the emission scores from the BiLSTM
         lstm_feats = self._get_lstm_features(sentence)
 
@@ -167,8 +168,86 @@ class BiLSTM_CRF(nn.Module):
         score, tag_seq = self._viterbi_decode(lstm_feats)
         return score, tag_seq
 
+#####################################################################
+# Run training
 
 
+START_TAG = "<START>"
+STOP_TAG = "<STOP>"
+EMBEDDING_DIM = 5
+HIDDEN_DIM = 4
+
+# Make up some training data
+training_data = [(
+    "the wall street journal reported today that apple corporation made money".split(),
+    "B I I I O O O B I O O".split()
+), (
+    "georgia tech is a university in georgia".split(),
+    "B I O O O O B".split()
+)]
+
+word_to_ix = {}
+for sentence, tags in training_data:
+    for word in sentence:
+        if word not in word_to_ix:
+            word_to_ix[word] = len(word_to_ix)
+
+tag_to_ix = {"B": 0, "I": 1, "O": 2, START_TAG: 3, STOP_TAG: 4}
+
+model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
+optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-4)
+
+# Check predictions before training
+with torch.no_grad():
+    precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
+    precheck_tags = torch.tensor([tag_to_ix[t] for t in training_data[0][1]], dtype=torch.long)
+    print(model(precheck_sent))
+
+# Make sure prepare_sequence from earlier in the LSTM section is loaded
+for epoch in range(
+        300):  # again, normally you would NOT do 300 epochs, it is toy data
+    for sentence, tags in training_data:
+        # Step 1. Remember that Pytorch accumulates gradients.
+        # We need to clear them out before each instance
+        model.zero_grad()
+
+        # Step 2. Get our inputs ready for the network, that is,
+        # turn them into Tensors of word indices.
+        sentence_in = prepare_sequence(sentence, word_to_ix)
+        targets = torch.tensor([tag_to_ix[t] for t in tags], dtype=torch.long)
+
+        # Step 3. Run our forward pass.
+        loss = model.neg_log_likelihood(sentence_in, targets)
+
+        # Step 4. Compute the loss, gradients, and update the parameters by
+        # calling optimizer.step()
+        loss.backward()
+        optimizer.step()
+
+# Check predictions after training
+with torch.no_grad():
+    precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
+    print(model(precheck_sent))
+# We got it!
 
 
-
+######################################################################
+# Exercise: A new loss function for discriminative tagging
+# --------------------------------------------------------
+#
+# It wasn't really necessary for us to create a computation graph when
+# doing decoding, since we do not backpropagate from the viterbi path
+# score. Since we have it anyway, try training the tagger where the loss
+# function is the difference between the Viterbi path score and the score
+# of the gold-standard path. It should be clear that this function is
+# non-negative and 0 when the predicted tag sequence is the correct tag
+# sequence. This is essentially *structured perceptron*.
+#
+# This modification should be short, since Viterbi and score\_sentence are
+# already implemented. This is an example of the shape of the computation
+# graph *depending on the training instance*. Although I haven't tried
+# implementing this in a static toolkit, I imagine that it is possible but
+# much less straightforward.
+#
+# Pick up some real data and do a comparison!
+#
